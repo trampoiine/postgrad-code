@@ -1,0 +1,307 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>智能驾舱控制台</title>
+<style>
+:root { --primary: #409eff; --border: #dcdfe6; --text: #303133; --success: #67c23a; --danger: #f56c6c; --warn: #e6a23c; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; color: var(--text); padding: 20px; }
+.container { max-width: 1100px; margin: 0 auto; background: #fff; border-radius: 8px; box-shadow: 0 2px 12px rgba(0,0,0,0.1); overflow: hidden; }
+.header { background: #2c3e50; color: #fff; padding: 15px 20px; text-align: center; font-size: 20px; font-weight: bold; letter-spacing: 2px; }
+.control-panel { padding: 15px 20px; }
+.control-row { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 14px 0; border-bottom: 1px dashed #eee; }
+.control-row:last-child { border-bottom: none; }
+
+.row-label { font-weight: bold; font-size: 14px; color: #555; width: 80px; }
+.value-display { font-size: 16px; font-weight: bold; color: var(--primary); margin: 0 10px; min-width: 60px; text-align: center;}
+
+/* 档位方块 */
+.gear-wrapper { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-right: 15px;}
+.gear-display { width: 52px; height: 52px; line-height: 52px; text-align: center; font-size: 26px; font-weight: bold; border-radius: 8px; color: #fff; background: #909399; box-shadow: 0 3px 10px rgba(0,0,0,0.2); transition: all 0.3s ease; user-select: none; }
+.gear-display.gear-n { background: #909399; }
+.gear-display.gear-d { background: #67c23a; }
+.gear-display.gear-r { background: #e6a23c; }
+.gear-display.gear-p { background: #f56c6c; }
+
+button { padding: 6px 14px; border: 1px solid var(--border); border-radius: 4px; background: #fff; cursor: pointer; font-size: 13px; transition: all 0.2s; }
+button:hover:not(:disabled) { background: #ecf5ff; color: var(--primary); border-color: var(--primary); }
+button.active { background: var(--primary); color: #fff; border-color: var(--primary); }
+button.danger { color: var(--danger); border-color: #fbc4c4; }
+button.danger:hover:not(:disabled) { background: #fef0f0; }
+button:disabled { background: #f5f5f5; color: #c0c4cc; cursor: not-allowed; border-color: #e4e7ed; }
+
+/* 数据面板 */
+.data-panel { padding: 12px 20px; border-top: 1px dashed #eee; }
+.data-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 20px; font-size: 13px; margin-top: 8px;}
+.data-grid span { font-family: Consolas, monospace; color: #409eff; font-weight: bold; }
+.data-frame { margin-top: 8px; font-size: 12px; color: #666; font-family: Consolas, monospace; }
+
+/* 状态行 */
+.status-row { display: flex; align-items: center; gap: 18px; padding: 12px 20px; border-top: 1px solid var(--border); background: #fafafa; font-size: 13px; color: #666; }
+.status-row .spacer { flex: 1; }
+.status-ok { color: var(--success); font-weight: bold; }
+.freq-ok { color: var(--success); font-weight: bold; }
+
+/* 实际车速大字显示 */
+.actual-speed-box { display: flex; align-items: baseline; gap: 5px; margin-left: 20px; }
+.actual-speed-num { font-size: 32px; font-weight: bold; color: #f56c6c; font-family: Consolas, monospace; }
+
+.toast { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) scale(0.9); background: rgba(0,0,0,0.78); color: #fff; padding: 14px 28px; border-radius: 10px; font-size: 16px; opacity: 0; pointer-events: none; transition: 0.2s; z-index: 9999; }
+.toast.show { opacity: 1; transform: translate(-50%, -50%) scale(1); }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="header">智能驾舱控制台</div>
+
+  <div class="control-panel">
+    <div class="control-row">
+      <button id="light-left" onclick="setLamp('left')">左转向灯</button>
+      <button id="light-right" onclick="setLamp('right')">右转向灯</button>
+      <button id="light-off" onclick="setLamp('off')">关闭转向灯</button>
+      <button id="light-hazard" onclick="toggleHazard()">双闪</button>
+      <button id="horn-btn" onmousedown="hornDown()" onmouseup="hornUp()" onmouseleave="hornUp()">喇叭</button>
+    </div>
+
+    <div class="control-row">
+      <span class="row-label">方向盘</span>
+      <button onclick="setSteer('left')">左转 +20°</button>
+      <button onclick="setSteer('right')">右转 -20°</button>
+      <button onclick="setSteer('center')">回正</button>
+      <span class="value-display" id="steer-val">0°</span>
+    </div>
+
+    <!-- 车速与刹车 -->
+    <div class="control-row">
+      <span class="row-label">目标车速</span>
+      <button id="btn-speed-down" onclick="setSpeed('down')" disabled>-</button>
+      <span class="value-display" id="speed-val">6 km/h</span>
+      <button id="btn-speed-up" onclick="setSpeed('up')" disabled>+</button>
+
+      <span class="row-label" style="margin-left: 30px;">制动踏板</span>
+      <button onclick="setBrake('down')">-</button>
+      <span class="value-display" id="brake-val">0 %</span>
+      <button onclick="setBrake('up')">+</button>
+      
+      <!-- 新增：刹车一键归零 -->
+      <button onclick="resetBrake()" style="margin-left: 5px; color: #f56c6c; border-color: #fbc4c4;">归零</button>
+
+      <div class="actual-speed-box">
+        <span style="font-weight:bold; color:#555; font-size:14px;">实际车速</span>
+        <span class="actual-speed-num" id="actual-speed-val">--</span>
+        <span style="color:#f56c6c; font-weight:bold;">km/h</span>
+      </div>
+    </div>
+
+    <div class="control-row">
+      <div class="gear-wrapper">
+        <div class="gear-display gear-p" id="gear-display">P</div>
+      </div>
+      <button id="btn-gear-p" onclick="setGear('P', this)" class="active">P</button>
+      <button id="btn-gear-r" onclick="setGear('R', this)">R</button>
+      <button id="btn-gear-n" onclick="setGear('N', this)">N</button>
+      <button id="btn-gear-d" onclick="setGear('D', this)">D</button>
+    </div>
+  </div>
+
+  <!-- 数据面板 -->
+  <div class="data-panel">
+    <div style="font-weight:bold; font-size:14px; color:#555;">当前发送数据 (D0-D7)</div>
+    <div class="data-grid">
+      <div>D0: <span id="d0">1F</span></div>
+      <div>D1: <span id="d1">00</span></div>
+      <div>D2: <span id="d2">00</span></div>
+      <div>D3: <span id="d3">00</span></div>
+      <div>D4: <span id="d4">00</span></div>
+      <div>D5: <span id="d5">00</span></div>
+      <div>D6: <span id="d6">00</span></div>
+      <div>D7: <span id="d7">00</span></div>
+    </div>
+    <div class="data-frame">完整报文：<span id="full-hex">08 00 00 05 01 1F 00 00 00 00 00 00 00</span></div>
+  </div>
+
+  <!-- 底部状态 -->
+  <div class="status-row">
+    <span>目标: 192.168.1.178:4001</span>
+    <span id="sys-status" class="status-ok">● 正在发送</span>
+    <span id="sys-freq" class="freq-ok">-- Hz</span>
+    <div class="spacer"></div>
+    <button onclick="resetAll()">全部复位</button>
+    <button class="danger" id="btn-stop" onclick="stopSend()">停止发送</button>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+let currentGear = 'P';
+let hazardOn = false;
+
+async function callPython(action, payload) {
+  if (window.pywebview && window.pywebview.api) {
+    return await window.pywebview.api.on_action(action, payload);
+  }
+  return null;
+}
+
+let toastTimer = null;
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.innerText = msg;
+  t.classList.remove('show');
+  void t.offsetWidth;
+  t.classList.add('show');
+  if (toastTimer) clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => t.classList.remove('show'), 2000);
+}
+
+async function setLamp(dir) {
+  if (hazardOn) { showToast('双闪开启中，请先关闭双闪'); return; }
+  const leftBtn = document.getElementById('light-left');
+  const rightBtn = document.getElementById('light-right');
+  
+  if (dir === 'left') {
+    leftBtn.classList.add('active');
+    rightBtn.classList.remove('active');
+  } else if (dir === 'right') {
+    rightBtn.classList.add('active');
+    leftBtn.classList.remove('active');
+  } else {
+    leftBtn.classList.remove('active');
+    rightBtn.classList.remove('active');
+  }
+  await callPython('lamp', dir);
+}
+
+async function toggleHazard() {
+  const btn = document.getElementById('light-hazard');
+  hazardOn = !hazardOn;
+  btn.classList.toggle('active', hazardOn);
+  if (hazardOn) {
+    document.getElementById('light-left').classList.remove('active');
+    document.getElementById('light-right').classList.remove('active');
+  }
+  await callPython('toggle', 'hazard');
+}
+
+async function hornDown() {
+  document.getElementById('horn-btn').classList.add('active');
+  await callPython('toggle', 'horn_on');
+}
+async function hornUp() {
+  document.getElementById('horn-btn').classList.remove('active');
+  await callPython('toggle', 'horn_off');
+}
+
+async function setSteer(dir) {
+  const res = await callPython('steering', dir);
+  if (res) document.getElementById('steer-val').innerText = res.steering + '°';
+}
+
+async function setSpeed(dir) {
+  const res = await callPython('speed', dir);
+  if (res) document.getElementById('speed-val').innerText = res.speed + ' km/h';
+}
+
+async function setBrake(dir) {
+  const res = await callPython('brake', dir);
+  if (res) document.getElementById('brake-val').innerText = res.brake + ' %';
+}
+
+// 新增：刹车一键归零
+async function resetBrake() {
+  const res = await callPython('brake_reset', '');
+  if (res) document.getElementById('brake-val').innerText = res.brake + ' %';
+}
+
+async function setGear(gear, btn) {
+  const res = await callPython('gear', gear);
+  if (res && res.ok === false) {
+    showToast(res.msg);
+    return;
+  }
+
+  currentGear = gear;
+  const display = document.getElementById('gear-display');
+  display.innerText = gear;
+  display.className = 'gear-display gear-' + gear.toLowerCase();
+
+  const parent = btn.parentElement;
+  parent.querySelectorAll('button').forEach(b => {
+    if (['P','R','N','D'].includes(b.innerText)) b.classList.remove('active');
+  });
+  btn.classList.add('active');
+
+  const isDriveGear = (gear === 'D' || gear === 'R');
+  document.getElementById('btn-speed-up').disabled = !isDriveGear;
+  document.getElementById('btn-speed-down').disabled = !isDriveGear;
+}
+
+async function stopSend() {
+  await callPython('stop', '');
+  const el = document.getElementById('sys-status');
+  el.innerText = '● 已停止';
+  el.style.color = 'red';
+  document.querySelectorAll('button').forEach(b => {
+    if (b.innerText !== '全部复位') b.disabled = true;
+  });
+}
+
+async function resetAll() {
+  await callPython('reset', '');
+  document.querySelectorAll('button').forEach(b => b.disabled = false);
+  
+  const sysEl = document.getElementById('sys-status');
+  sysEl.innerText = '● 正在发送';
+  sysEl.style.color = ''; 
+  
+  hazardOn = false;
+  document.getElementById('light-left').classList.remove('active');
+  document.getElementById('light-right').classList.remove('active');
+  document.getElementById('light-hazard').classList.remove('active');
+  document.getElementById('horn-btn').classList.remove('active');
+  
+  document.getElementById('steer-val').innerText = '0°';
+  document.getElementById('speed-val').innerText = '6 km/h';
+  document.getElementById('brake-val').innerText = '0 %';
+  
+  currentGear = 'P';
+  const display = document.getElementById('gear-display');
+  display.innerText = 'P';
+  display.className = 'gear-display gear-p';
+  
+  document.getElementById('btn-gear-p').classList.add('active');
+  document.getElementById('btn-gear-r').classList.remove('active');
+  document.getElementById('btn-gear-n').classList.remove('active');
+  document.getElementById('btn-gear-d').classList.remove('active');
+  
+  document.getElementById('btn-speed-up').disabled = true;
+  document.getElementById('btn-speed-down').disabled = true;
+}
+
+window.updateData = function(dataList, fullHex, actualSpeed) {
+  for (let i = 0; i < 8; i++) {
+    document.getElementById('d'+i).innerText = dataList[i].toString(16).toUpperCase().padStart(2, '0');
+  }
+  document.getElementById('full-hex').innerText = fullHex;
+  
+  const spdEl = document.getElementById('actual-speed-val');
+  if (actualSpeed === '--' || actualSpeed === undefined) {
+    spdEl.innerText = '--';
+  } else {
+    spdEl.innerText = Number(actualSpeed).toFixed(1);
+  }
+};
+
+window.updateFreq = function(freq) {
+  const el = document.getElementById('sys-freq');
+  el.innerText = freq + ' Hz';
+  if (freq >= 80 && freq <= 120) el.className = 'freq-ok';
+  else { el.className = 'status-ok'; el.style.color = '#e6a23c'; }
+};
+</script>
+</body>
+</html>
