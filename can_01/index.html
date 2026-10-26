@@ -17,7 +17,6 @@ body { font-family: "Microsoft YaHei", sans-serif; background: #f0f2f5; color: v
 .row-label { font-weight: bold; font-size: 14px; color: #555; width: 80px; }
 .value-display { font-size: 16px; font-weight: bold; color: var(--primary); margin: 0 10px; min-width: 60px; text-align: center;}
 
-/* 档位方块 */
 .gear-wrapper { display: flex; flex-direction: column; align-items: center; gap: 4px; margin-right: 15px;}
 .gear-display { width: 52px; height: 52px; line-height: 52px; text-align: center; font-size: 26px; font-weight: bold; border-radius: 8px; color: #fff; background: #909399; box-shadow: 0 3px 10px rgba(0,0,0,0.2); transition: all 0.3s ease; user-select: none; }
 .gear-display.gear-n { background: #909399; }
@@ -31,20 +30,20 @@ button.active { background: var(--primary); color: #fff; border-color: var(--pri
 button.danger { color: var(--danger); border-color: #fbc4c4; }
 button.danger:hover:not(:disabled) { background: #fef0f0; }
 button:disabled { background: #f5f5f5; color: #c0c4cc; cursor: not-allowed; border-color: #e4e7ed; }
+button.success { background-color: #67c23a; color: white; border-color: #67c23a; }
+button.success:hover:not(:disabled) { background-color: #85ce61; }
 
-/* 数据面板 */
 .data-panel { padding: 12px 20px; border-top: 1px dashed #eee; }
 .data-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px 20px; font-size: 13px; margin-top: 8px;}
 .data-grid span { font-family: Consolas, monospace; color: #409eff; font-weight: bold; }
 .data-frame { margin-top: 8px; font-size: 12px; color: #666; font-family: Consolas, monospace; }
 
-/* 状态行 */
 .status-row { display: flex; align-items: center; gap: 18px; padding: 12px 20px; border-top: 1px solid var(--border); background: #fafafa; font-size: 13px; color: #666; }
 .status-row .spacer { flex: 1; }
 .status-ok { color: var(--success); font-weight: bold; }
+.status-bad { color: var(--danger); font-weight: bold; }
 .freq-ok { color: var(--success); font-weight: bold; }
 
-/* 实际车速大字显示 */
 .actual-speed-box { display: flex; align-items: baseline; gap: 5px; margin-left: 20px; }
 .actual-speed-num { font-size: 32px; font-weight: bold; color: #f56c6c; font-family: Consolas, monospace; }
 
@@ -74,11 +73,10 @@ button:disabled { background: #f5f5f5; color: #c0c4cc; cursor: not-allowed; bord
       <span class="value-display" id="steer-val">0°</span>
     </div>
 
-    <!-- 车速与刹车 -->
     <div class="control-row">
       <span class="row-label">目标车速</span>
       <button id="btn-speed-down" onclick="setSpeed('down')" disabled>-</button>
-      <span class="value-display" id="speed-val">6 km/h</span>
+      <span class="value-display" id="speed-val">0 km/h</span>
       <button id="btn-speed-up" onclick="setSpeed('up')" disabled>+</button>
 
       <span class="row-label" style="margin-left: 30px;">制动踏板</span>
@@ -86,7 +84,6 @@ button:disabled { background: #f5f5f5; color: #c0c4cc; cursor: not-allowed; bord
       <span class="value-display" id="brake-val">0 %</span>
       <button onclick="setBrake('up')">+</button>
       
-      <!-- 新增：刹车一键归零 -->
       <button onclick="resetBrake()" style="margin-left: 5px; color: #f56c6c; border-color: #fbc4c4;">归零</button>
 
       <div class="actual-speed-box">
@@ -107,7 +104,6 @@ button:disabled { background: #f5f5f5; color: #c0c4cc; cursor: not-allowed; bord
     </div>
   </div>
 
-  <!-- 数据面板 -->
   <div class="data-panel">
     <div style="font-weight:bold; font-size:14px; color:#555;">当前发送数据 (D0-D7)</div>
     <div class="data-grid">
@@ -123,14 +119,14 @@ button:disabled { background: #f5f5f5; color: #c0c4cc; cursor: not-allowed; bord
     <div class="data-frame">完整报文：<span id="full-hex">08 00 00 05 01 1F 00 00 00 00 00 00 00</span></div>
   </div>
 
-  <!-- 底部状态 -->
   <div class="status-row">
-    <span>目标: 192.168.1.178:4001</span>
-    <span id="sys-status" class="status-ok">● 正在发送</span>
-    <span id="sys-freq" class="freq-ok">-- Hz</span>
+    <span>目标: 127.0.0.1:4001</span>
+    <span id="sys-status" class="status-bad">● 等待启动</span>
+    <span id="sys-freq" class="freq-ok">0 Hz</span>
     <div class="spacer"></div>
     <button onclick="resetAll()">全部复位</button>
-    <button class="danger" id="btn-stop" onclick="stopSend()">停止发送</button>
+    <!-- 【新增】开始/停止按钮 -->
+    <button id="btn-toggle-send" class="success" onclick="toggleSend()">开始发送</button>
   </div>
 </div>
 
@@ -139,6 +135,7 @@ button:disabled { background: #f5f5f5; color: #c0c4cc; cursor: not-allowed; bord
 <script>
 let currentGear = 'P';
 let hazardOn = false;
+let isSending = false; // 前端记录当前发送状态
 
 async function callPython(action, payload) {
   if (window.pywebview && window.pywebview.api) {
@@ -211,7 +208,6 @@ async function setBrake(dir) {
   if (res) document.getElementById('brake-val').innerText = res.brake + ' %';
 }
 
-// 新增：刹车一键归零
 async function resetBrake() {
   const res = await callPython('brake_reset', '');
   if (res) document.getElementById('brake-val').innerText = res.brake + ' %';
@@ -240,14 +236,28 @@ async function setGear(gear, btn) {
   document.getElementById('btn-speed-down').disabled = !isDriveGear;
 }
 
-async function stopSend() {
-  await callPython('stop', '');
-  const el = document.getElementById('sys-status');
-  el.innerText = '● 已停止';
-  el.style.color = 'red';
-  document.querySelectorAll('button').forEach(b => {
-    if (b.innerText !== '全部复位') b.disabled = true;
-  });
+// 【新增】控制发送状态切换
+async function toggleSend() {
+  const btn = document.getElementById('btn-toggle-send');
+  const statusEl = document.getElementById('sys-status');
+  
+  if (!isSending) {
+    // 要开始发送
+    await callPython('start', '');
+    isSending = true;
+    btn.innerText = '停止发送';
+    btn.className = 'danger';
+    statusEl.innerText = '● 正在发送';
+    statusEl.className = 'status-ok';
+  } else {
+    // 要停止发送
+    await callPython('stop', '');
+    isSending = false;
+    btn.innerText = '开始发送';
+    btn.className = 'success';
+    statusEl.innerText = '● 已停止';
+    statusEl.className = 'status-bad';
+  }
 }
 
 async function resetAll() {
@@ -255,8 +265,13 @@ async function resetAll() {
   document.querySelectorAll('button').forEach(b => b.disabled = false);
   
   const sysEl = document.getElementById('sys-status');
-  sysEl.innerText = '● 正在发送';
-  sysEl.style.color = ''; 
+  sysEl.innerText = '● 等待启动';
+  sysEl.className = 'status-bad';
+  isSending = false;
+  
+  const toggleBtn = document.getElementById('btn-toggle-send');
+  toggleBtn.innerText = '开始发送';
+  toggleBtn.className = 'success';
   
   hazardOn = false;
   document.getElementById('light-left').classList.remove('active');
@@ -265,7 +280,7 @@ async function resetAll() {
   document.getElementById('horn-btn').classList.remove('active');
   
   document.getElementById('steer-val').innerText = '0°';
-  document.getElementById('speed-val').innerText = '6 km/h';
+  document.getElementById('speed-val').innerText = '0 km/h'; // 初始归零
   document.getElementById('brake-val').innerText = '0 %';
   
   currentGear = 'P';
@@ -282,7 +297,8 @@ async function resetAll() {
   document.getElementById('btn-speed-down').disabled = true;
 }
 
-window.updateData = function(dataList, fullHex, actualSpeed) {
+// 接收后端推送的数据，增加发送状态判断
+window.updateData = function(dataList, fullHex, actualSpeed, sendingStatus) {
   for (let i = 0; i < 8; i++) {
     document.getElementById('d'+i).innerText = dataList[i].toString(16).toUpperCase().padStart(2, '0');
   }
@@ -293,6 +309,24 @@ window.updateData = function(dataList, fullHex, actualSpeed) {
     spdEl.innerText = '--';
   } else {
     spdEl.innerText = Number(actualSpeed).toFixed(1);
+  }
+
+  // 如果后端状态和前端不一致，同步更新一下 UI
+  if (sendingStatus !== isSending) {
+    isSending = sendingStatus;
+    const btn = document.getElementById('btn-toggle-send');
+    const statusEl = document.getElementById('sys-status');
+    if (isSending) {
+      btn.innerText = '停止发送';
+      btn.className = 'danger';
+      statusEl.innerText = '● 正在发送';
+      statusEl.className = 'status-ok';
+    } else {
+      btn.innerText = '开始发送';
+      btn.className = 'success';
+      statusEl.innerText = '● 已停止';
+      statusEl.className = 'status-bad';
+    }
   }
 };
 
